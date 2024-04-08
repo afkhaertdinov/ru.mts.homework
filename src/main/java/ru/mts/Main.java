@@ -1,179 +1,144 @@
 package ru.mts;
 
 import ru.mts.DTO.СounterAtomic;
-import ru.mts.Services.RunFile;
+import ru.mts.Services.CopyTextInFile;
+import ru.mts.Services.RowFibonacci;
 
 import java.io.*;
-import java.nio.ByteBuffer;
+import java.math.BigInteger;
 import java.nio.CharBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main {
-//    static String inputFile = "src/main/java/ru/mts/Hamlet.txt";
-    static String inputFile = "src/main/java/ru/mts/Onegin.txt";
-    static String outputFile = "src/main/java/ru/mts/Tatyana.txt";
-
-
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, ExecutionException, InterruptedException {
 
 //TODO 1. Потокобезопасный счетчик: Создайте класс счетчика,
 //        который можно увеличивать из нескольких потоков без использования синхронизации.
 //        Используйте атомарные операции или классы из пакета java.util.concurrent.atomic.
-/*
         {
-            СounterAtomic counter = new СounterAtomic();
-            Runnable runnable = () -> {
+            final int NUMBER_OF_THREADS = 8; // Количество создаваемых потоков
+
+            СounterAtomic counter = new СounterAtomic(); // Создаём экземпляр класса, счётчик которого будем увеличивать
+            Runnable runnable = () -> {  // Задача, в которой будет увеличиваться счётчик counter
                 for (int i = 0; i < 9999; i++) {
                     counter.increment();
                 }
             };
-            for (int i = 0; i <= 8; i++)
+
+            for (int i = 0; i <= NUMBER_OF_THREADS; i++) // Создаём NUMBER_OF_THREADS потоков и запускаем
                 new Thread(runnable).start();
 
-            try {
+            try { // Даём время потокам поработать
                 Thread.sleep(1000);
             } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                throw new RuntimeException(e); // Верим в лучшее, готовимся к худшему
             }
-            System.out.println(counter.getValue());
+
+            System.out.println("Задание № 1: Потокобезопасный счетчик.");
+            System.out.println("Значение счётчика итератора = " + counter.getValue()); // Проверяем результат
         }
-*/
 
 //TODO 2. Чтение и запись в файл параллельно:
 //        Разделите файл на части и создайте потоки для параллельного чтения и записи в разные части файла.
 //        Прочитанный текст выведите в консоль.
         {
-            List<String> strings = new ArrayList<>();
-            BufferedReader reader = new BufferedReader(new FileReader(inputFile));
-            Files.deleteIfExists(Path.of(outputFile));
-            String string = "";
-            RunFile runFile1 = new RunFile();
-            RunFile runFile2 = new RunFile();
-            RunFile runFile3 = new RunFile();
-/*
-            while ((string = reader.readLine()) != null)
-                strings.add(string);
-            strings.forEach(System.out::println);
-*/
+            String inputFile = "src/main/java/ru/mts/Onegin.txt"; // Входной файл (то, что написал Онегин)
+            String outputFile = "src/main/java/ru/mts/Tatyana.txt"; // Получаемый файл (то, что возможно получила Татьяна)
+            Files.deleteIfExists(Path.of(outputFile)); // Удаляем файл, если он существует, затем создадим новый.
+            final int NUMBER_OF_THREADS = 5; // Количество создаваемых потоков
+            List<Thread> threads = new ArrayList<>(NUMBER_OF_THREADS); // Тут будет список потоков
+
             try (FileInputStream fileInputStream = new FileInputStream(inputFile); RandomAccessFile fileOutputStream = new RandomAccessFile(outputFile, "rw")) {
-                FileChannel inputChannel = fileInputStream.getChannel();
-                FileChannel outputChannel = fileOutputStream.getChannel();
-                ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+                FileChannel inputChannel = fileInputStream.getChannel(); // Канал входного файла
+                FileChannel outputChannel = fileOutputStream.getChannel(); // Канал выходного файла
 
-                long channelSize = inputChannel.size();
-                int kol = 3;
-//                int counter = (int) (channelSize / 1024) + 1;
-                long bufferSize = channelSize / kol;
-//                while (1024 < bufferSize) {
-//                    bufferSize = bufferSize / kol;
-//                    counter++;
-//                }
-//                long position = 1 * bufferSize * counter - 1;
-                System.out.println("channelSize = " + channelSize);
-//                System.out.println("buferSize = " + bufferSize);
-//                System.out.println("counter = " + counter);
-//                System.out.println("position = " + position);
-//                bufferSize = 512;
-                runFile1.inpRun(inputChannel,outputChannel,0,bufferSize);
                 System.out.println();
-                runFile3.inpRun(inputChannel,outputChannel,bufferSize*2,channelSize);
-                System.out.println();
-                runFile2.inpRun(inputChannel,outputChannel,bufferSize,bufferSize*2);
+                System.out.println("Задание № 2: Чтение и запись в файл параллельно.");
+                long bufferSize = inputChannel.size() / NUMBER_OF_THREADS + 1; // размер буфера для каждого потока
 
-                System.out.println("Печать созданного файла:");
-                System.out.println();
-                MappedByteBuffer mappedByteBuffer = inputChannel.map(FileChannel.MapMode.READ_ONLY, 0, channelSize);
-                if (mappedByteBuffer != null) {
-                    CharBuffer charBuffer = null;
-                    charBuffer = Charset.forName("UTF-8").decode(mappedByteBuffer);
-                    System.out.println(charBuffer);
-
+                for (int i = 0; i < NUMBER_OF_THREADS; i++) { // В цикле выдаём каждому потоку задачу
+                    threads.add(new Thread(new CopyTextInFile(inputChannel, outputChannel, bufferSize * i, Math.min(bufferSize * (i + 1), inputChannel.size()))));
+                    threads.get(i).setName("Поток № " + (i + 1));
+                    threads.get(i).start();
                 }
-
-
-/*
-                MappedByteBuffer mappedByteBuffer = inputChannel.map(FileChannel.MapMode.READ_ONLY, 128, channelSize - 128);
-                CharBuffer charBuffer = null;
-                if (mappedByteBuffer != null) {
-                    charBuffer = Charset.forName("UTF-8").decode(mappedByteBuffer);
-                    System.out.println("test1 - " + charBuffer);
-                }
-                mappedByteBuffer = outputChannel.map(FileChannel.MapMode.READ_WRITE, 128, channelSize - 128);
-
-                if (mappedByteBuffer != null) {
-                    mappedByteBuffer.put(
-                            Charset.forName("utf-8").encode(charBuffer));
-                }
-*/
-/*
-charBuffer = null;
-                mappedByteBuffer = inputChannel.map(FileChannel.MapMode.READ_ONLY, 128+256, 256);
-                if (mappedByteBuffer != null) {
-                    charBuffer = Charset.forName("UTF-8").decode(mappedByteBuffer);
-                    System.out.println("test2 - " + charBuffer);
-                }
-                mappedByteBuffer = outputChannel.map(FileChannel.MapMode.READ_WRITE, 128+256, 256);
-
-                if (mappedByteBuffer != null) {
-                    mappedByteBuffer.put(
-                            Charset.forName("utf-8").encode(charBuffer));
-                }
-*/
-
-
-
-//                    ByteBuffer buff = ByteBuffer.allocate(bufferSize);
-
-//                    if (bufferSize > inputChannel.channelSize()) {
-//                        bufferSize = (int) inputChannel.channelSize();
-//                    }
-/*
-                for (int i = 0; i < counter; i++){
-                    inputChannel.read(buff,bufferSize);
-                    //outputChannel.position(bufferSize*2);
-                    string = new String(buff.array(), StandardCharsets.UTF_8);
-                    System.out.println(string);
-                    outputChannel.write(ByteBuffer.wrap(string.getBytes(StandardCharsets.UTF_8), 0, buff.position()));
-//                    outputChannel.write(ByteBuffer.wrap(buff.array()));
-                            //ByteBuffer.wrap(buff.array(), 0, bufferSize));
-                    buff.flip();
-                    System.out.println(outputChannel.channelSize());
-                }
-*/
-
+                for (Thread thread: threads)
+                    thread.join(); // Дожидаемся окончания работы всех потоков
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e); // Верим в лучшее, готовимся к худшему
             }
-//                int bufferSize = 1024;
 
-
-//                outputChannel.position(0);
-/*
-                while (inputChannel.read(buff) > 0) {
-                    System.out.println(new String(buff.array(), StandardCharsets.UTF_8));
-//                    byteOut.write(buff.array(), 0, buff.position());
-                    outputChannel.write(ByteBuffer.wrap(buff.array(), 0, buff.position()));
-                    //write(ByteBuffer.wrap(buff.array()));
-//                    position += bufferSize;
-                    System.out.println(outputChannel.channelSize());
-//                    outputChannel.close();
-                    buff.flip();
-//                    buff.clear();
+            // Распечатывает окончательный вариант outputFile, который по частям скопировали наши потоки.
+            try (FileInputStream fileInputStream = new FileInputStream(outputFile)) {
+                FileChannel inputChannel = fileInputStream.getChannel();
+                System.out.println("===========================");
+                System.out.println("По итогу работы программы Татьяна получила от Онегина следующее письмо:");
+                System.out.println();
+                MappedByteBuffer mappedByteBuffer = inputChannel.map(FileChannel.MapMode.READ_ONLY, 0, inputChannel.size());
+                if (mappedByteBuffer != null) {
+                    CharBuffer charBuffer = StandardCharsets.UTF_8.decode(mappedByteBuffer);
+                    System.out.println(charBuffer);
                 }
-*/
-
-
-//                string = byteOut.toString(StandardCharsets.UTF_8);
-//                System.out.println(string);
+            }
         }
 
-    }
+//TODO 3. Параллельное вычисление ряда чисел Фибоначчи:
+//        Разделите ряд чисел Фибоначчи на части и создайте отдельный поток для вычисления каждой части.
+//        Затем объедините результаты. Прочитанный текст выведите в консоль.
+        {
+            final int NUMBER_OF_THREADS = 10; // Количество создаваемых потоков
+            final int START_NUMBER = 1; // Начальное значение вычисляемого ряда Фибоначчи
+            final int END_NUMBER = 926; // Конечное значение вычисляемого ряда Фибоначчи
 
+            ExecutorService executor = Executors.newFixedThreadPool(NUMBER_OF_THREADS); // Определяем пул из NUMBER_OF_THREADS потоков
+            List<Future<BigInteger[]>> futures = new ArrayList<>(); // Список ассоциированных с Callable задач Future
+
+            int rowSize = (END_NUMBER - START_NUMBER + 1) / NUMBER_OF_THREADS; // размер ряда каждого потока
+            int rowRemains = (END_NUMBER - START_NUMBER + 1) % NUMBER_OF_THREADS; // остаток от деления
+
+            System.out.println();
+            System.out.println("Задание № 3: Параллельное вычисление ряда чисел Фибоначчи.");
+            int startNumber = START_NUMBER; // Для первого потока начальная позиция всегда START_NUMBER
+            //noinspection ConstantValue,PointlessArithmeticExpression
+            int endNumber = START_NUMBER - 1 + rowSize + (rowRemains-- > 0 ? 1 : 0); // Рассчитываем конечную позицию для первого потока
+            System.out.println("Создаём " + NUMBER_OF_THREADS + " потоков с указанными ниже диапазонами:");
+            // Приступаем к построению ряда Фибоначчи
+            for (int i = 0; i < NUMBER_OF_THREADS; i++) {
+                System.out.println("[" + startNumber + ":" + endNumber + "] - " + (endNumber - startNumber + 1) + " элементов");
+                // Создаём новый поток и ожидаем получить результат в списке futures
+                futures.add(executor.submit(new RowFibonacci(startNumber, endNumber)));
+                // Начальная позиция startNumber следующего потока всегда на 1 больше конечной позиции endNumber предыдущего потока
+                startNumber = endNumber + 1;
+                // Конечная позиция следующего потока больше конечной позиции предыдущего потока
+                // на (rowSize - размер ряда каждого потока) и остаток от rowSize, если он остался
+                endNumber = endNumber + rowSize + (rowRemains-- > 0 ? 1 : 0);
+            }
+            // Получаем массивы с потоков и объединяем
+            List<BigInteger> bigIntegerList = new ArrayList<>();
+            for (Future<BigInteger[]> future : futures)
+                bigIntegerList.addAll(Arrays.asList(future.get()));
+
+            // Завершаем работу потоков
+            executor.shutdown(); // Даём команду на завершение работы потоков
+            try { // Ожидаем завершение работы потоков 60 секунд
+                if (!executor.awaitTermination(60, TimeUnit.SECONDS))
+                    executor.shutdownNow(); // Если работа потоков не завершена, пытаемся их отменить
+            } catch (InterruptedException e) {
+                executor.shutdownNow(); // Верим в лучшее, готовимся к худшему
+            }
+            // Печатаем полученный ряд Фибоначчи
+            System.out.println();
+            System.out.println("Ряд Фибоначи [" + START_NUMBER + ":" + END_NUMBER + "]");
+            AtomicInteger i = new AtomicInteger(START_NUMBER);
+            bigIntegerList.forEach(bigInteger -> { System.out.println("Fibonacci[" + i + "]: " + bigInteger); i.getAndIncrement(); });
+        }
+    }
 }
